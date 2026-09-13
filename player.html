@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Live Stream Player - HR TV</title>
+    
+    <!-- Tailwind CSS & FontAwesome Icons -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Hls.js for m3u8 Streams -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+    <style>
+        body {
+            background-color: #08090d;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            color: #f1f5f9;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #0f1117; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #262936; border-radius: 4px; }
+    </style>
+</head>
+<body class="max-w-md mx-auto min-h-screen flex flex-col border-x border-gray-900/60 pb-6">
+
+    <!-- Top Simple App Bar -->
+    <header class="sticky top-0 z-40 bg-[#08090d]/95 backdrop-blur-md px-4 py-3 border-b border-white/5 flex items-center justify-between">
+        <a href="index.html" class="flex items-center gap-2 text-gray-300 hover:text-white transition">
+            <i class="fa-solid fa-arrow-left text-sm"></i>
+            <span class="text-xs font-bold">Back</span>
+        </a>
+        <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+            <span class="text-xs font-black tracking-widest text-white uppercase">LIVE STREAM</span>
+        </div>
+        <button onclick="shareLink()" class="text-gray-300 hover:text-white transition">
+            <i class="fa-solid fa-share-nodes text-sm"></i>
+        </button>
+    </header>
+
+    <!-- 1. Player Section (Aspect Ratio 16:9) -->
+    <div class="relative w-full aspect-video bg-black overflow-hidden border-b border-white/5 shadow-2xl">
+        
+        <!-- Video Element -->
+        <video id="videoPlayer" class="w-full h-full object-contain hidden" playsinline controls></video>
+        
+        <!-- Iframe Element (if embed stream) -->
+        <iframe id="iframePlayer" class="w-full h-full border-0 hidden" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+
+        <!-- Poster & Play Overlay Button -->
+        <div id="playerPoster" class="absolute inset-0 bg-[#12131a] flex flex-col items-center justify-center p-4">
+            <img id="posterImg" src="https://i.postimg.cc/bwH0G8w5/file-00000000f86c81fabc31858ba0521022.png" class="w-16 h-16 rounded-2xl object-contain shadow-lg mb-3 border border-white/10 p-1 bg-black">
+            <button onclick="startPlayback()" class="w-12 h-12 rounded-full bg-pink-600 hover:bg-pink-500 text-white flex items-center justify-center text-lg pl-1 shadow-lg shadow-pink-600/40 transition hover:scale-105 active:scale-95">
+                <i class="fa-solid fa-play"></i>
+            </button>
+            <span class="text-xs font-semibold text-gray-300 mt-3" id="posterTitle">Loading Stream...</span>
+        </div>
+
+        <!-- Fullscreen Toggle Overlay Button -->
+        <button onclick="toggleFullScreen()" class="absolute bottom-3 right-3 z-30 bg-black/70 hover:bg-black text-white p-2 rounded-lg text-xs backdrop-blur-sm border border-white/10">
+            <i class="fa-solid fa-expand"></i>
+        </button>
+    </div>
+
+    <!-- 2. Match Details & Server Selector -->
+    <div class="p-4 space-y-4 border-b border-white/5 bg-[#0d0e14]">
+        <div>
+            <h1 id="streamTitle" class="text-base font-extrabold text-white">Loading Title...</h1>
+            <p id="streamSubtitle" class="text-xs text-gray-400 mt-0.5">Please wait while fetching live feed...</p>
+        </div>
+
+        <!-- Server Switching Buttons (Dynamic) -->
+        <div class="space-y-1.5">
+            <span class="text-[11px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-server text-pink-500"></i> Select Server:
+            </span>
+            <div id="serversList" class="flex gap-2 flex-wrap"></div>
+        </div>
+    </div>
+
+    <!-- 3. Realtime Live Chat / Comments Section -->
+    <div class="flex-1 flex flex-col p-4 space-y-3">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-regular fa-comments text-pink-500 text-sm"></i> Live Discussion
+            </h2>
+            <span id="commentsCount" class="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-gray-400 font-semibold">0 comments</span>
+        </div>
+
+        <!-- Comments Container List -->
+        <div id="commentsList" class="flex-1 min-h-[220px] max-h-[320px] overflow-y-auto space-y-2.5 pr-1 custom-scrollbar">
+            <div class="text-center py-10 text-xs text-gray-500">No comments yet. Be the first to cheer!</div>
+        </div>
+
+        <!-- Add Comment Input Box -->
+        <form onsubmit="postComment(event)" class="mt-auto space-y-2 pt-2 border-t border-white/5">
+            <input type="text" id="userNameInput" placeholder="Your Name" required class="w-full bg-[#12131c] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pink-500/60 placeholder-gray-500">
+            <div class="flex gap-2">
+                <input type="text" id="commentTextInput" placeholder="Write your message..." required class="flex-1 bg-[#12131c] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-pink-500/60 placeholder-gray-500">
+                <button type="submit" class="bg-pink-600 hover:bg-pink-500 active:scale-95 text-white px-4 rounded-xl text-xs font-bold transition flex items-center justify-center">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Script Logic -->
+    <script>
+        // Firebase Config (Same as your Index page)
+        const firebaseConfig = {
+            apiKey: "AIzaSyD_HBGuQSh_GzqrHqHbgdaoBikLZsK3Qqs",
+            authDomain: "new-all-f99f7.firebaseapp.com",
+            databaseURL: "https://new-all-f99f7-default-rtdb.firebaseio.com",
+            projectId: "new-all-f99f7",
+            storageBucket: "new-all-f99f7.firebasestorage.app",
+            messagingSenderId: "1069748173900",
+            appId: "1:1069748173900:web:158d6336c0f4628133c8e9",
+            measurementId: "G-V6DZ37WSBF"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // Parse Query Params (?type=tinoz_matches&id=...)
+        const urlParams = new URLSearchParams(window.location.search);
+        const dbType = urlParams.get('type') || 'tinoz_matches';
+        const itemId = urlParams.get('id');
+
+        let currentStreams = [];
+        let currentStreamIndex = 0;
+        let hlsInstance = null;
+
+        const videoPlayer = document.getElementById("videoPlayer");
+        const iframePlayer = document.getElementById("iframePlayer");
+        const posterOverlay = document.getElementById("playerPoster");
+
+        // অটো নাম লোড
+        const savedName = localStorage.getItem('hrtv_chat_name');
+        if (savedName) {
+            document.getElementById("userNameInput").value = savedName;
+        }
+
+        // লোড স্ট্রিম ডেটা
+        if (itemId) {
+            db.ref(`${dbType}/${itemId}`).on("value", snap => {
+                const data = snap.val();
+                if (data) {
+                    renderItemDetails(data);
+                } else {
+                    document.getElementById("streamTitle").innerText = "Stream not found";
+                }
+            });
+
+            // কমেন্ট লিসেনার সেটআপ
+            listenComments();
+        } else {
+            document.getElementById("streamTitle").innerText = "No stream selected";
+        }
+
+        function renderItemDetails(item) {
+            const title = item.title || (item.team1Name && item.team2Name ? `${item.team1Name} vs ${item.team2Name}` : item.name) || "Live Match";
+            const sub = item.category ? `${item.category.toUpperCase()} • ${item.stage || 'HD'}` : "Live TV Channel";
+            
+            document.getElementById("streamTitle").innerText = title;
+            document.getElementById("posterTitle").innerText = title;
+            document.getElementById("streamSubtitle").innerText = sub;
+            document.title = `${title} - HR TV Live`;
+
+            if (item.team1Logo || item.logo) {
+                document.getElementById("posterImg").src = item.team1Logo || item.logo;
+            }
+
+            // একাধিক লিংক/সার্ভার তৈরি
+            currentStreams = [];
+            if (item.streamUrl) currentStreams.push({ name: "Server 1", url: item.streamUrl });
+            if (item.streamUrl2) currentStreams.push({ name: "Server 2", url: item.streamUrl2 });
+            if (item.streamUrl3) currentStreams.push({ name: "Server 3", url: item.streamUrl3 });
+            if (item.targetUrl && currentStreams.length === 0) currentStreams.push({ name: "Main Server", url: item.targetUrl });
+
+            renderServers();
+        }
+
+        function renderServers() {
+            const container = document.getElementById("serversList");
+            container.innerHTML = "";
+
+            if (currentStreams.length === 0) {
+                container.innerHTML = `<span class="text-xs text-gray-500">No active streaming link available.</span>`;
+                return;
+            }
+
+            currentStreams.forEach((st, idx) => {
+                const btn = document.createElement("button");
+                btn.className = `px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    idx === currentStreamIndex 
+                        ? 'bg-pink-600 text-white shadow-md shadow-pink-600/30' 
+                        : 'bg-[#181a24] text-gray-400 hover:bg-[#202330]'
+                }`;
+                btn.innerHTML = `<i class="fa-solid fa-play text-[10px]"></i> ${st.name}`;
+                btn.onclick = () => switchServer(idx);
+                container.appendChild(btn);
+            });
+        }
+
+        function switchServer(index) {
+            currentStreamIndex = index;
+            renderServers();
+            startPlayback();
+        }
+
+        function startPlayback() {
+            if (currentStreams.length === 0) {
+                alert("No stream available currently.");
+                return;
+            }
+
+            const activeUrl = currentStreams[currentStreamIndex].url;
+            posterOverlay.classList.add("hidden");
+
+            // ক্লিনআপ পূর্ববর্তী প্লেয়ার
+            if (hlsInstance) {
+                hlsInstance.destroy();
+                hlsInstance = null;
+            }
+
+            // Embed or Direct Iframe check
+            if (activeUrl.includes("<iframe") || (!activeUrl.includes(".m3u8") && !activeUrl.includes(".mp4") && (activeUrl.includes("http") && !activeUrl.includes("manifest")))) {
+                videoPlayer.classList.add("hidden");
+                videoPlayer.pause();
+                iframePlayer.classList.remove("hidden");
+
+                if (activeUrl.includes("<iframe")) {
+                    const srcMatch = activeUrl.match(/src=["'](.*?)["']/);
+                    iframePlayer.src = srcMatch ? srcMatch[1] : "";
+                } else {
+                    iframePlayer.src = activeUrl;
+                }
+            } else {
+                // HLS / m3u8 / MP4 Video Playback
+                iframePlayer.classList.add("hidden");
+                iframePlayer.src = "";
+                videoPlayer.classList.remove("hidden");
+
+                if (Hls.isSupported() && activeUrl.includes(".m3u8")) {
+                    hlsInstance = new Hls();
+                    hlsInstance.loadSource(activeUrl);
+                    hlsInstance.attachMedia(videoPlayer);
+                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => videoPlayer.play());
+                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                    videoPlayer.src = activeUrl;
+                    videoPlayer.addEventListener('loadedmetadata', () => videoPlayer.play());
+                } else {
+                    videoPlayer.src = activeUrl;
+                    videoPlayer.play();
+                }
+            }
+        }
+
+        function toggleFullScreen() {
+            const playerBox = document.querySelector(".aspect-video");
+            if (!document.fullscreenElement) {
+                if (playerBox.requestFullscreen) playerBox.requestFullscreen();
+                else if (videoPlayer.webkitEnterFullscreen) videoPlayer.webkitEnterFullscreen();
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+            }
+        }
+
+        function shareLink() {
+            if (navigator.share) {
+                navigator.share({ title: document.title, url: window.location.href });
+            } else {
+                navigator.clipboard.writeText(window.location.href);
+                alert("Match link copied to clipboard!");
+            }
+        }
+
+        // ================= কমেন্ট সিস্টেম (Realtime Firebase) =================
+        function listenComments() {
+            const commentsRef = db.ref(`tinoz_comments/${itemId}`);
+            commentsRef.limitToLast(50).on("value", snap => {
+                const list = document.getElementById("commentsList");
+                const countBadge = document.getElementById("commentsCount");
+                const data = snap.val();
+
+                if (!data) {
+                    list.innerHTML = `<div class="text-center py-10 text-xs text-gray-500">No comments yet. Be the first to cheer!</div>`;
+                    countBadge.innerText = `0 comments`;
+                    return;
+                }
+
+                const keys = Object.keys(data);
+                countBadge.innerText = `${keys.length} comments`;
+                list.innerHTML = "";
+
+                keys.forEach(k => {
+                    const c = data[k];
+                    const msgDiv = document.createElement("div");
+                    msgDiv.className = "bg-[#12141c] p-2.5 rounded-xl border border-white/5 space-y-1";
+                    msgDiv.innerHTML = `
+                        <div class="flex items-center justify-between text-[11px]">
+                            <span class="font-bold text-pink-400">${escapeHtml(c.user || 'Guest')}</span>
+                            <span class="text-[9px] text-gray-500">${formatCommentTime(c.timestamp)}</span>
+                        </div>
+                        <p class="text-xs text-gray-200 break-words leading-relaxed">${escapeHtml(c.text || '')}</p>
+                    `;
+                    list.appendChild(msgDiv);
+                });
+
+                list.scrollTop = list.scrollHeight;
+            });
+        }
+
+        function postComment(e) {
+            e.preventDefault();
+            const nameInput = document.getElementById("userNameInput");
+            const textInput = document.getElementById("commentTextInput");
+
+            const name = nameInput.value.trim();
+            const text = textInput.value.trim();
+
+            if (!name || !text || !itemId) return;
+
+            localStorage.setItem('hrtv_chat_name', name);
+
+            const commentsRef = db.ref(`tinoz_comments/${itemId}`);
+            commentsRef.push({
+                user: name,
+                text: text,
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            });
+
+            textInput.value = "";
+        }
+
+        function formatCommentTime(ts) {
+            if (!ts) return "";
+            const d = new Date(ts);
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function escapeHtml(text) {
+            const m = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, function(match) { return m[match]; });
+        }
+    </script>
+</body>
+</html>
