@@ -643,23 +643,25 @@
             }
         }
 
-        // ================= CLICK HANDLER (Clicks Metric + Popunder + Stream) =================
+        // ================= CLICK HANDLER (Player Redirect Fix) =================
         function handleItemClick(dbPath, key, directUrl) {
-            // এডমিন প্যানেলের ক্লিকের ট্র্যাকিং
-            db.ref(`${dbPath}/${key}/clicks`).transaction(c => (c || 0) + 1);
-
-            const adUrl = adsSettings.default_ad_url || adsSettings.ad_url;
-            const targetPlayer = directUrl && directUrl.startsWith('http') ? directUrl : `player.html?type=${dbPath}&id=${key}`;
-
-            if (adUrl && adsSettings.global_enabled !== false) {
-                const adWindow = window.open(adUrl, '_blank');
-                if (adWindow) {
-                    adWindow.blur();
-                    window.focus();
-                }
+            // ১. এডমিন প্যানেলের ক্লিকের ট্র্যাকিং (সেফলি)
+            try {
+                db.ref(`${dbPath}/${key}/clicks`).transaction(c => (c || 0) + 1);
+            } catch (e) {
+                console.warn("Tracking error:", e);
             }
 
-            window.location.href = targetPlayer;
+            // ২. অ্যাড ওপেন (যদি অন থাকে)
+            const adUrl = adsSettings?.default_ad_url || adsSettings?.ad_url;
+            if (adUrl && adsSettings?.global_enabled !== false) {
+                try {
+                    window.open(adUrl, '_blank');
+                } catch(e) {}
+            }
+
+            // ৩. নিশ্চিতভাবে player.html-এ নিয়ে যাবে
+            window.location.href = `player.html?type=${encodeURIComponent(dbPath)}&id=${encodeURIComponent(key)}`;
         }
 
         // ================= PWA APP INSTALL LOGIC =================
